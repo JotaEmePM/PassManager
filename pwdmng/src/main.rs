@@ -10,7 +10,7 @@ use tui::backend::{Backend, CrosstermBackend};
 use tui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use tui::style::{Color, Modifier, Style};
 use tui::text::Span;
-use tui::widgets::{Block, BorderType, Borders, List, ListItem, ListState, Paragraph};
+use tui::widgets::{Block, BorderType, Borders, Clear, List, ListItem, ListState, Paragraph};
 use tui::{Frame, Terminal};
 
 const APP_KEYS_DESC: &str = r#"
@@ -34,6 +34,7 @@ enum InputMode {
     Submit,
     Search,
     List,
+    Delete,
 }
 
 #[derive(Clone)]
@@ -196,6 +197,25 @@ impl PassMng {
         if let Some(index) = self.list_state.selected() {
             let title = self.passwords[index].title.to_owned();
             PassMng::copy(title);
+        }
+    }
+
+    pub fn check_delete(&mut self) {
+        if self.list_state.selected().is_some() {
+            self.change_mode(InputMode::Delete);
+        }
+    }
+
+    pub fn delete(&mut self) {
+        if let Some(index) = self.list_state.selected() {
+            self.passwords.remove(index);
+
+            if index > 0 {
+                self.list_state.select(Some(0));
+            } else {
+                self.list_state.select(None);
+            }
+            self.change_mode(InputMode::List);
         }
     }
 
@@ -362,6 +382,18 @@ fn run_app<B: Backend>(
                     KeyCode::Char('e') => {
                         state.start_edit_mode();
                     }
+                    KeyCode::Char('d') => {
+                        state.check_delete();
+                    }
+                    _ => {}
+                },
+                InputMode::Delete => match key.code {
+                    KeyCode::Char('n') => {
+                        state.change_mode(InputMode::List);
+                    }
+                    KeyCode::Char('y') => {
+                        state.delete();
+                    }
                     _ => {}
                 },
             }
@@ -388,6 +420,8 @@ fn ui<B: Backend>(f: &mut Frame<B>, state: &mut PassMng) {
         .border_type(BorderType::Rounded);
     f.render_widget(list_section_block, parent_chunk[1]);
     list_section(f, state, parent_chunk[1]);
+
+    delete_popup(f, state);
 }
 
 fn new_section<B: Backend>(f: &mut Frame<B>, state: &mut PassMng, area: Rect) {
@@ -505,4 +539,56 @@ fn list_section<B: Backend>(f: &mut Frame<B>, state: &mut PassMng, area: Rect) {
         .highlight_symbol("->")
         .highlight_style(Style::default().add_modifier(Modifier::BOLD));
     f.render_stateful_widget(list, list_chunks[1], &mut state.list_state);
+}
+
+fn delete_popup<B: Backend>(f: &mut Frame<B>, state: &mut PassMng) {
+    if let InputMode::Delete = state.mode {
+        let block = Block::default()
+            .title("Confirm deletion?")
+            .title_alignment(Alignment::Center)
+            .border_type(BorderType::Rounded)
+            .borders(Borders::ALL);
+        let area = centered_rect(60, 25, f.size());
+        f.render_widget(Clear, area);
+        f.render_widget(block, area);
+
+        let chunk = Layout::default()
+            .margin(2)
+            .constraints([Constraint::Length(2), Constraint::Length(2)].as_ref())
+            .split(area);
+
+        let text = Paragraph::new("Are you sure?")
+            .style(Style::default().fg(Color::Red))
+            .alignment(Alignment::Center);
+        f.render_widget(text, chunk[0]);
+
+        let keys_desc = Paragraph::new("Press (Y) yes - (N) No").alignment(Alignment::Center);
+        f.render_widget(keys_desc, chunk[1]);
+    }
+}
+
+fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
+    let popup_layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints(
+            [
+                Constraint::Percentage((100 - percent_y) / 2),
+                Constraint::Percentage(percent_y),
+                Constraint::Percentage((100 - percent_y) / 2),
+            ]
+            .as_ref(),
+        )
+        .split(r);
+
+    Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints(
+            [
+                Constraint::Percentage((100 - percent_x) / 2),
+                Constraint::Percentage(percent_x),
+                Constraint::Percentage((100 - percent_x) / 2),
+            ]
+            .as_ref(),
+        )
+        .split(popup_layout[1])[1]
 }
